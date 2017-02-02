@@ -8,6 +8,8 @@ function initSocketIo () {
 
 	socket.on('connect', function () {
 		console.log('connected', socket.id);
+		$$todosContainer.innerHTML = '';
+		fetchTodos();
 	});
 
 	socket.on('todo:updated', function (todo) {
@@ -64,8 +66,6 @@ function fetchTodos () {
 
 bindEventListeners();
 initSocketIo();
-fetchTodos();
-
 
 function renderTodos (todos) {
 	for (let i = 0; i < todos.length; i++){
@@ -137,7 +137,9 @@ function bindEventListeners(){
 					var prev = collection[todo.id];
 					todoContainer.querySelector('.todo-text').value = prev.text;
 					todoContainer.querySelector('.todo-done').checked = prev.done;
-					alert(response.errors.text.message);
+					if (response.errors && response.errors.text) {
+						alert(response.errors.text.message);
+					}
 				});
 			} else {
 				sendCreateTodoReq(todo)
@@ -148,7 +150,9 @@ function bindEventListeners(){
 					socket.emit('todo:added', todo);
 					$$todosContainer.appendChild(renderTodo(todo));
 				}).catch(function (response) {
-					alert(response.errors.text.message);
+					if (response.errors && response.errors.text) {
+						alert(response.errors.text.message);
+					}
 				});
 				todoContainer.remove();
 			}
