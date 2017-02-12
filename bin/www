@@ -8,6 +8,8 @@ var app = require('../app/');
 var debug = require('debug')('express:server');
 var http = require('http');
 var socketService = require('../app/common/socketService');
+var cluster = require('cluster');
+var nCPUs = require('os').cpus().length;
 
 /**
  * Get port from environment and store in Express.
@@ -20,18 +22,31 @@ app.set('port', port);
  * Create HTTP server.
  */
 
-var server = http.createServer(app);
-var io = require('socket.io')(server);
-socketService.setSocketIo(io);
+if (cluster.isMaster) {
+	console.log(`Master ${process.pid} is running`);
+
+	for (let i = 0; i < nCPUs; i++) {
+		cluster.fork();	
+	}
+
+	cluster.on('exit', (worker, code, signal) => {
+		console.log(`worker ${worker.process.pid} died`);
+	});
+
+} else {
+	var server = http.createServer(app);
+	var io = require('socket.io')(server);
+	socketService.setSocketIo(io);
+	server.listen(port);
+	server.on('error', onError);
+	server.on('listening', onListening);
+}
 
 
 /**
  * Listen on provided port, on all network interfaces.
  */
 
-server.listen(port);
-server.on('error', onError);
-server.on('listening', onListening);
 
 /**
  * Normalize a port into a number, string, or false.
