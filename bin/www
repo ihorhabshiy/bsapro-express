@@ -7,16 +7,18 @@
 var app = require('../app/');
 var debug = require('debug')('express:server');
 var http = require('http');
+var net = require('net');
 var socketService = require('../app/common/socketService');
 var cluster = require('cluster');
 var nCPUs = require('os').cpus().length;
+var sio_redis = require('socket.io-redis');
 
 /**
  * Get port from environment and store in Express.
  */
 
 var port = normalizePort(process.env.PORT || '2223');
-app.set('port', port);
+// app.set('port', port);
 
 /**
  * Create HTTP server.
@@ -25,21 +27,50 @@ app.set('port', port);
 if (cluster.isMaster) {
 	console.log(`Master ${process.pid} is running`);
 
-	for (let i = 0; i < nCPUs; i++) {
-		cluster.fork();	
+	var workers = [];
+
+	var spawn = function (i) {
+		workers[i] = cluster.fork();
 	}
 
-	cluster.on('exit', (worker, code, signal) => {
-		console.log(`worker ${worker.process.pid} died`);
-	});
+	for (var i = 0; i < nCPUs; i++) {
+		spawn(i);
+	}
 
+	var worker_index = function (ip, len) {
+		var s = '';
+		for (var i = 0, _len = ip.length; i < _len; i++) {
+			if (!isNaN(ip[i])) {
+				s += ip[i];
+			}
+		}
+
+		return Number(s) % len;
+	}
+
+	var server = net.createServer({ pauseOnConnect: true}, function (connection) {
+		console.log('connection addr', connection.remoteAddress);
+		var worker = workers[worker_index(connection.remoteAddress, nCPUs)];
+		console.log('workers', workers.length);
+		worker.send('sticky-session:connection', connection);
+	}).listen(port);
 } else {
-	var server = http.createServer(app);
+	var server = app.listen(0, 'localhost');
 	var io = require('socket.io')(server);
+	io.adapter(sio_redis({host: 'localhost', port: 6379 }));
 	socketService.setSocketIo(io);
-	server.listen(port);
-	server.on('error', onError);
-	server.on('listening', onListening);
+
+    process.on('message', function(message, connection) {
+        if (message !== 'sticky-session:connection') {
+            return;
+        }
+
+        // Emulate a connection event on the server by emitting the
+        // event with the connection the master sent us.
+        server.emit('connection', connection);
+
+        connection.resume();
+    });
 }
 
 
